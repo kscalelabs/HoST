@@ -1,3 +1,5 @@
+import importlib, distutils
+importlib.import_module("distutils.version")
 import os
 import numpy as np
 from datetime import datetime

@@ -1105,9 +1105,29 @@ class LeggedRobot(BaseTask):
 
     #-----------------------------style rewards-----------------------------
     def _reward_waist_deviation(self):
+        """Penalize waist joint deviation.
+
+        If the current robot model does not contain any waist joints (i.e. the
+        waist_joint_indices tensor is empty), return a zero reward buffer of
+        appropriate shape so that downstream broadcasting works correctly.
+        """
+
+        # Handle robots with no waist joints defined.
+        if self.waist_joint_indices.numel() == 0:
+            # No waist joints -> no deviation penalty (zeros)
+            return torch.zeros(self.num_envs, device=self.device)
+
         wrist_dof = self.dof_pos[:, self.waist_joint_indices]
         reward = (torch.abs(wrist_dof) > 1.4).float()
-        return reward.squeeze(1)
+
+        # If only one waist joint the result has shape (N,1); squeeze to (N)
+        if reward.dim() == 2 and reward.shape[1] == 1:
+            reward = reward.squeeze(1)
+        else:
+            # For multiple joints take max across joints to maintain shape (N)
+            reward = torch.max(reward, dim=1).values
+
+        return reward
 
     def _reward_hip_yaw_deviation(self):
         hip_yaw_dof = self.dof_pos[:, self.hip_joint_indices]

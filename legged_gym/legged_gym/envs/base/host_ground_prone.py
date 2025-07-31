@@ -140,11 +140,18 @@ class LeggedRobot(BaseTask):
 
         # prepare quantities
         self.base_pos[:] = self.root_states[:, 0:3]
-        self.base_quat[:] = self.root_states[:, 3:7]
+        if self.imu_indices is not None:
+            self.base_quat[:] = self.rigid_body_states[:, self.imu_indices, 3:7]
+        else:
+            self.base_quat[:] = self.root_states[:, 3:7]
         self.rpy[:] = get_euler_xyz_in_tensor(self.base_quat[:])
         self.init_rpy = None
-        self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
-        self.base_ang_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
+        if self.imu_indices is not None:
+            self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, self.rigid_body_states[:, self.imu_indices, 7:10])
+            self.base_ang_vel[:] = quat_rotate_inverse(self.base_quat, self.rigid_body_states[:, self.imu_indices, 10:13])
+        else:
+            self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
+            self.base_ang_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
         self.projected_gravity[:] = quat_rotate_inverse(self.base_quat, self.gravity_vec)
 
         self._post_physics_step_callback()
@@ -667,7 +674,7 @@ class LeggedRobot(BaseTask):
         if self.cfg.domain_rand.randomize_actuation_offset:
             self.actuation_offset = torch_rand_float(self.cfg.domain_rand.actuation_offset_range[0], self.cfg.domain_rand.actuation_offset_range[1], (self.num_envs, self.num_dof), device=self.device) * self.torque_limits.unsqueeze(0)
         if self.cfg.domain_rand.randomize_motor_strength:
-            self.motor_strength = torch_rand_float(self.cfg.domain_rand.motor_strength_range[0], self.cfg.domain_rand.motor_strength_range[1], (self.num_envs, self.num_dofs), device=self.device)
+            self.motor_strength = torch_rand_float(self.cfg.domain_rand.motor_strength_range[0], self.cfg.domain_rand.motor_strength_range[1], (self.num_envs, self.num_dof), device=self.device)
         if self.cfg.domain_rand.randomize_payload_mass:
             self.payload = torch_rand_float(self.cfg.domain_rand.payload_mass_range[0], self.cfg.domain_rand.payload_mass_range[1], (self.num_envs, 1), device=self.device)
         if self.cfg.domain_rand.randomize_com_displacement:
@@ -829,6 +836,13 @@ class LeggedRobot(BaseTask):
         self.feet_indices = torch.zeros(len(feet_names), dtype=torch.long, device=self.device, requires_grad=False)
         for i in range(len(feet_names)):
             self.feet_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.actor_handles[0], feet_names[i])
+        # Optional IMU body index
+        self.imu_indices = self.gym.find_actor_rigid_body_handle(
+            self.envs[0], self.actor_handles[0], self.cfg.asset.imu_name
+        )
+        if self.imu_indices == -1:
+            self.imu_indices = None
+            print(f"Warning: IMU {self.cfg.asset.imu_name} not found. Using base link orientation instead.")
 
         self.penalised_contact_indices = torch.zeros(len(penalized_contact_names), dtype=torch.long, device=self.device, requires_grad=False)
         for i in range(len(penalized_contact_names)):
